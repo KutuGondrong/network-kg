@@ -11,5 +11,5 @@ import com.kutugondrong.networkkg.annotation.Network
  */
 
 enum class NetworkType {
-    NONE, GET, POST
+    NONE, GET, POST, PUT, DELETE
 }

@@ -43,6 +43,8 @@ import kotlin.reflect.jvm.kotlinFunction
  * @see Network
  * Query parameter appended to the URL using use Header
  * @see Header
+ * Body parameter should custom object
+ * @see Body
  * Query parameter appended to the URL using use Query
  * @see Query
  * Handle return type if use CallbackKG or handle if return is a arraylist
@@ -73,31 +75,34 @@ class NetworkKG private constructor(builder: Builder) {
         if (!service.isInterface) {
             throw NetworkKGException("API declarations must be interfaces.")
         }
-        if(httpClient == null) {
+        if (httpClient == null) {
             throw NetworkKGException("Need to set DefaultHttpClient")
         }
-        if (converterAdapter.size == 0 && converterAdapter[0] == null){
+        if (converterAdapter.size == 0 && converterAdapter[0] == null) {
             throw NetworkKGException("Need to set converterAdapter for default using " +
-                    "com.kutugondrong.networkkg.converter.JsonKGAdapter")
+                    "com.kutugondrong.networkkg.jsonkgadapter.JsonKGAdapter")
         }
     }
 
-    val invocationHandler = suspendInvocationHandlerReplace (
+    val invocationHandler = suspendInvocationHandlerReplace(
         { pathAndQuery, proxy, method, args ->
-            if (converterAdapter[0]?.type == ConverterNetworkKGAdapter.JSONKGADAPTER){
-                throw NetworkKGException("if using " +
-                        "com.kutugondrong.networkkg.converter.JsonKGAdapter, " +
-                        "function must be suspend")
+            converterAdapter[0]?.type?.also {
+                if (it > 0) {
+                    throw NetworkKGException("if using " +
+                            "com.kutugondrong.networkkg.jsonkgadapter.JsonKGAdapter, " +
+                            "com.kutugondrong.networkkg.gsonadapter.GsonKGAdapter, " +
+                            "function must be suspend")
+                }
             }
             null
         },
         { pathAndQuery, proxy, method, args ->
             try {
                 var result: Any? = null
-                val cloneClass = method.kotlinFunction?.returnType?.jvmErasure as KClass<*>
-                if(cloneClass.javaPrimitiveType == null && cloneClass != Unit::class) {
-                    if(converterAdapter[0]?.type == ConverterNetworkKGAdapter.JSONKGADAPTER){
-                        result = processUsingJsonKGAdapter(pathAndQuery, method, cloneClass)
+                converterAdapter[0]?.type?.also {
+                    val cloneClass = method.kotlinFunction?.returnType?.jvmErasure as KClass<*>
+                    if (cloneClass.javaPrimitiveType == null && cloneClass != Unit::class && it > 0) {
+                        result = executeServiceMethod(pathAndQuery, method, cloneClass)
                     }
                 }
                 result
@@ -112,8 +117,8 @@ class NetworkKG private constructor(builder: Builder) {
         }
     )
 
-    @Suppress( "NAME_SHADOWING", "UNCHECKED_CAST", "UNUSED_PARAMETER")
-    fun  suspendInvocationHandlerReplace(
+    @Suppress("NAME_SHADOWING", "UNCHECKED_CAST", "UNUSED_PARAMETER")
+    fun suspendInvocationHandlerReplace(
         blockNoSuspend: (pathAndQuery: String, proxy: Any, method: Method, args: Array<*>?) -> Any?,
         blockSuspend: suspend (pathAndQuery: String, proxy: Any, method: Method, args: Array<*>?) -> Any?,
     ) =
@@ -127,39 +132,31 @@ class NetworkKG private constructor(builder: Builder) {
                 blockNoSuspend(pathAndQuery, proxy, method, args)
             } else {
                 val args = args.dropLast(1).toTypedArray()
-                val suspendInvoker = blockSuspend as (String, Any, Method, Array<*>?, Continuation<*>) -> Any?
+                val suspendInvoker =
+                    blockSuspend as (String, Any, Method, Array<*>?, Continuation<*>) -> Any?
                 suspendInvoker(pathAndQuery, proxy, method, args, cont)
             }
         }
 
 
-    private suspend fun processUsingJsonKGAdapter(
+    private suspend fun executeServiceMethod(
         pathAndQuery: String,
         method: Method,
         cloneClass: KClass<*>,
     ): Any? {
         val network = method.getAnnotation(Network::class.java)
         var requestMethod: RequestMethodTypeKG? = null
-        network?.apply {
-            requestMethod = when (network.type) {
-                NetworkType.GET -> {
-                    RequestMethodTypeKG.GET
-                }
-                NetworkType.POST -> {
-                    RequestMethodTypeKG.POST
-                }
-                else -> {
-                    throw NetworkKGException("Check your service method ${method.name} \n" +
-                            "you need implement com.kutugondrong.networkkg.collection.NetworkType GET or POST")
-                }
-            }
+        network?.type?.also {
+            requestMethod = getRequestMethod(it, method.name)
         }
         val response = httpClient?.execute(HttpClientKG.dslSettingBuilder {
             this.requestMethod = requestMethod
             this.pathAndQuery = pathAndQuery
             this.properties.addAll(customProperties)
+            this.jsonBody = jsonBodyValue
         }).also {
             customProperties = ArrayList()
+            jsonBodyValue = null
         }
         var responseFromHttpClient: Any? = null
         if (response?.success == true) {
@@ -193,11 +190,32 @@ class NetworkKG private constructor(builder: Builder) {
         return responseFromHttpClient
     }
 
+    private fun getRequestMethod(type: NetworkType, methodName: String): RequestMethodTypeKG {
+        return when (type) {
+            NetworkType.GET -> {
+                RequestMethodTypeKG.GET
+            }
+            NetworkType.POST -> {
+                RequestMethodTypeKG.POST
+            }
+            NetworkType.PUT -> {
+                RequestMethodTypeKG.PUT
+            }
+            NetworkType.DELETE -> {
+                RequestMethodTypeKG.DELETE
+            }
+            else -> {
+                throw NetworkKGException("Check your service method $methodName \n" +
+                        "you need implement com.kutugondrong.networkkg.collection.NetworkType GET or POST")
+            }
+        }
+    }
+
     private fun getPathAndQuery(args: Array<*>?, method: Method, path: String): String {
         var pathAndQuery = path
         val parameterType = method.parameterTypes
         val parameterAnnotation = method.parameterAnnotations
-        args?.size?.also {
+        args?.size?.also { it ->
             val params = LinkedHashMap<String, String>()
             for (i in 0 until it) {
                 var parameterAnnotationCopy: Any? = null
@@ -213,6 +231,11 @@ class NetworkKG private constructor(builder: Builder) {
                             "{${parameterAnnotationCopy.value}}",
                             args[i].toString(), false)
                     }
+                    parameterAnnotationCopy is Body -> {
+                        args[i]?.also { value ->
+                            jsonBodyValue = converterAdapter[0]?.toJson(value)
+                        }
+                    }
                     parameterAnnotationCopy is Header -> {
                         customProperties.add(
                             PropertyKG(
@@ -226,7 +249,7 @@ class NetworkKG private constructor(builder: Builder) {
                         if (parameterType[i].fields.isNotEmpty()) {
                             name = parameterType[i].fields[0].type
                         }
-                        if(name != null) {
+                        if (name != null) {
                             throw NetworkKGException("Check your service method ${method.name} " +
                                     "you need implement com.kutugondrong.networkkg.annotation.Query or\n" +
                                     "you need implement com.kutugondrong.networkkg.annotation.Path  or\n" +
@@ -237,15 +260,15 @@ class NetworkKG private constructor(builder: Builder) {
                     }
                 }
             }
-            getPathAndQuery(params).let {
-                pathAndQuery = "$pathAndQuery?${getPathAndQuery(params)}"
+            formatQuery(params).also { value ->
+                pathAndQuery = "$pathAndQuery$value"
             }
         }
         return pathAndQuery
     }
 
     @Throws(UnsupportedEncodingException::class)
-    private fun getPathAndQuery(params: LinkedHashMap<String, String>): String {
+    private fun formatQuery(params: LinkedHashMap<String, String>): String {
         val result = StringBuilder()
         var first = true
         for (pair in params) {
@@ -254,7 +277,11 @@ class NetworkKG private constructor(builder: Builder) {
             result.append("=")
             result.append(URLEncoder.encode(pair.value, "UTF-8"))
         }
-        return result.toString()
+        var checkResult = result.toString()
+        if (checkResult.isNotBlank()) {
+            checkResult = "?$checkResult"
+        }
+        return checkResult
     }
 
     companion object {
@@ -273,6 +300,7 @@ class NetworkKG private constructor(builder: Builder) {
 
     private var isDebug: Boolean = false
     private var customProperties: MutableList<PropertyKG> = ArrayList()
+    private var jsonBodyValue: String? = null
 
     init {
         httpClient = builder.httpClient

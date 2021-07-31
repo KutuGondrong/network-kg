@@ -22,7 +22,7 @@ Step 2. Add the dependency
 ```
 
 	dependencies {
-	        implementation 'com.github.KutuGondrong:networkkg:0.0.1'
+	        implementation 'com.github.KutuGondrong:network-kg:0.0.1'
 	}
 
 ```
@@ -43,6 +43,10 @@ val service = NetworkKG.dslNetworkKG{
         isDebug = true
     }.createService<TestService>()
 ```
+## Adapter
+
+- [JSONKG](https://github.com/KutuGondrong/jsonkgadapter)
+- [GSON](https://github.com/KutuGondrong/gsonkgadapter)
 
 ## Website
 [kutugondrong.com](https://kutugondrong.com/)
