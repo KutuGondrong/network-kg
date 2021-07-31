@@ -9,6 +9,8 @@ import com.kutugondrong.networkkg.callback.CallbackKG
 import com.kutugondrong.networkkg.collection.NetworkType
 import com.kutugondrong.networkkg.exception.NetworkKGException
 import com.kutugondrong.networkkgadapter.ConverterNetworkKGAdapter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.UnsupportedEncodingException
 import java.lang.reflect.*
 import java.net.URLEncoder
@@ -98,14 +100,16 @@ class NetworkKG private constructor(builder: Builder) {
         },
         { pathAndQuery, proxy, method, args ->
             try {
-                var result: Any? = null
-                converterAdapter[0]?.type?.also {
-                    val cloneClass = method.kotlinFunction?.returnType?.jvmErasure as KClass<*>
-                    if (cloneClass.javaPrimitiveType == null && cloneClass != Unit::class && it > 0) {
-                        result = executeServiceMethod(pathAndQuery, method, cloneClass)
+                withContext(Dispatchers.IO) {
+                    var result: Any? = null
+                    converterAdapter[0]?.type?.also {
+                        val cloneClass = method.kotlinFunction?.returnType?.jvmErasure as KClass<*>
+                        if (cloneClass.javaPrimitiveType == null && cloneClass != Unit::class && it > 0) {
+                            result = executeServiceMethod(pathAndQuery, method, cloneClass)
+                        }
                     }
+                    result
                 }
-                result
             } catch (e: NetworkKGException) {
                 throw NetworkKGException("${e.message}")
             } catch (e: Exception) {
