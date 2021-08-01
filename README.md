@@ -1,6 +1,6 @@
 # NETWORKKG
 
-A type-safe HTTP client for Android Using Kotlin with suspend function. NetworkKG uses the [HttpClientKG](https://github.com/KutuGondrong/httpclient-kg) library for HTTP requests. 
+A type-safe HTTP client for Android Using Kotlin with suspend function. NetworkKG uses the [HttpClientKG](https://github.com/KutuGondrong/httpclient-kg) library for HTTP requests. The following applications have implemented this library. [Example-App](https://github.com/KutuGondrong/example-app)
 
 ## Usage
 Add it in your root build.gradle at the end of repositories:
